@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Data files
+*.h5
+*.npy
+*.npz
+*.nc
+*.npy_cache/
+
+# Logs and outputs
+*.log
+experiments/
+inference_results/
+visualization/output/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
