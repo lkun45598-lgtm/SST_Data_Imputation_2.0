@@ -5,9 +5,11 @@
 ## 相比 1.0 的主要改进
 
 - **昼夜感知时序填充**：权重 `w = (1/dt) * exp(-α * hour_diff)` 避免昼夜温差混叠
-- **三步预处理流水线**：时序填充 → 高斯低通滤波 → 3D时空KNN
+- **四步预处理流水线**：时序填充 → 高斯低通滤波 → 3D时空KNN → KNN后滤波
+- **SST质量过滤**：剔除原始JAXA数据中因云检测失败引入的异常低温像素（< 285K）
 - **小时级数据处理**：从日尺度升级到小时尺度，更充分利用卫星观测
 - **3D时空KNN**：渐进式密度分带策略，边缘优先填充
+- **KNN后高斯滤波**：对非观测像素再次滤波，进一步消除KNN残留噪点
 
 ## 目录结构
 
@@ -17,6 +19,7 @@ SST_Data_Imputation_2.0/
 │   ├── temporal_weighted_fill.py   # Step1: 昼夜感知时序加权填充
 │   ├── lowpass_filter.py           # Step2: 高斯低通滤波 (σ=1.5)
 │   ├── knn_fill_3d.py              # Step3: 3D时空KNN填充
+│   ├── post_knn_filter.py          # Step4: KNN后高斯滤波 (σ=1.5)
 │   └── knn_fill.py                 # 2D KNN填充 (备用)
 │
 ├── models/                         # 模型定义
@@ -64,6 +67,7 @@ JAXA hourly NC files (每小时卫星观测，平均缺失率 ~58%)
   昼夜感知时序加权填充
   w = (1/dt) * exp(-α * hour_diff), α=0.5
   48h回溯窗口，同时刻观测权重最高
+  SST质量过滤：剔除 < 285K 的异常像素
   → 缺失率降至 ~13.5%
         ↓
 [Step 2: lowpass_filter.py]
@@ -77,7 +81,13 @@ JAXA hourly NC files (每小时卫星观测，平均缺失率 ~58%)
   ±60h时间窗口，K=30
   → 缺失率降至 0%
         ↓
-模型输入数据 (sst_knn_filled/*.h5)
+[Step 4: post_knn_filter.py]
+  KNN后高斯滤波 (σ=1.5)
+  仅对非原始观测的海洋像素滤波
+  真实卫星观测值保持不变
+  → 消除KNN填充残留噪点
+        ↓
+模型输入数据 (sst_post_filtered/*.h5)
 ```
 
 ## 模型架构
@@ -112,20 +122,21 @@ L_total = α₁·L_mse + α₂·L_gradient + α₃·L_temporal
 ### 运行预处理
 
 ```bash
-# 全流程 (Step1 → Step2 → Step3)
+# 全流程 (Step1 → Step2 → Step3 → Step4)
 bash scripts/run_preprocessing.sh
 
 # 单步运行
 bash scripts/run_preprocessing.sh --step 2        # 仅低通滤波
 bash scripts/run_preprocessing.sh --step 2 3      # 滤波+KNN
+bash scripts/run_preprocessing.sh --step 4        # 仅KNN后滤波
 bash scripts/run_preprocessing.sh --series 0 1     # 指定系列
 ```
 
 ### 训练
 
 ```bash
-# JAXA微调 (8 GPU DDP)
-bash scripts/run_training.sh
+# JAXA微调 (4 GPU DDP)
+CUDA_VISIBLE_DEVICES=0,1,2,3 python training/train_jaxa.py
 ```
 
 ## 依赖环境
