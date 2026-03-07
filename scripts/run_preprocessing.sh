@@ -1,14 +1,15 @@
 #!/bin/bash
 # =============================================================
-# SST Preprocessing Pipeline: temporal_fill → lowpass_filter → knn_fill
+# SST Preprocessing Pipeline: temporal_fill → lowpass_filter → knn_fill → post_filter
 # =============================================================
 # Pipeline:
 #   1. Temporal weighted fill (diurnal-aware): raw JAXA → sst_temperal_data/
 #   2. Gaussian low-pass filter (σ=1.5):      sst_temperal_data/ → sst_filtered/
 #   3. 3D spatiotemporal KNN fill:             sst_filtered/ → sst_knn_filled/
+#   4. Post-KNN Gaussian filter (σ=1.5):      sst_knn_filled/ → sst_post_filtered/
 #
 # Usage:
-#   bash run_preprocessing.sh              # Run all 3 steps, all series
+#   bash run_preprocessing.sh              # Run all 4 steps, all series
 #   bash run_preprocessing.sh --step 2     # Run only step 2 (filter)
 #   bash run_preprocessing.sh --step 2 3   # Run steps 2 and 3
 #   bash run_preprocessing.sh --series 0 1 # Only process series 0 and 1
@@ -53,7 +54,7 @@ done
 
 # Default: run all steps
 if [ ${#STEPS[@]} -eq 0 ]; then
-    STEPS=(1 2 3)
+    STEPS=(1 2 3 4)
 fi
 
 echo "============================================================="
@@ -94,8 +95,15 @@ for step in "${STEPS[@]}"; do
             fi
             echo ""
             ;;
+        4)
+            echo "============================================================="
+            echo "Step 4: Post-KNN Gaussian Filter (σ=1.5)"
+            echo "============================================================="
+            python $PREPROCESSING_DIR/post_knn_filter.py $SERIES_ARGS --sigma 1.5 --workers 216
+            echo ""
+            ;;
         *)
-            echo "Unknown step: $step (valid: 1, 2, 3)"
+            echo "Unknown step: $step (valid: 1, 2, 3, 4)"
             exit 1
             ;;
     esac

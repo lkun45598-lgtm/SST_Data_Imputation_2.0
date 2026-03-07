@@ -644,7 +644,7 @@ def main():
         'alpha_grad': 0.02,
         'alpha_temporal': 0.1,
         'knn_method': '3d_progressive',
-        'world_size': 2,
+        'world_size': 4,
     }
 
     # ---- 创建实验目录（自动递增编号） ----

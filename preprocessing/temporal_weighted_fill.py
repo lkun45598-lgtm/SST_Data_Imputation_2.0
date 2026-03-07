@@ -64,6 +64,8 @@ INTERVAL = 1           # 1 hour interval (hourly processing)
 LOOKBACK_WINDOW = 48   # Maximum lookback window in hours
 DEFAULT_WORKERS = 216  # Default number of CPU cores
 DIURNAL_ALPHA = 0.5    # Diurnal cycle weighting decay factor
+SST_VALID_MIN = 285.0  # Minimum valid SST in Kelvin (~12°C, filter cloud leakage)
+SST_VALID_MAX = 310.0  # Maximum valid SST in Kelvin (~37°C)
 
 # 9 yearly series configurations
 # (series_id, start_date, end_date, start_year_label)
@@ -106,6 +108,8 @@ def load_jaxa_frame(target_time: datetime) -> Tuple[Optional[np.ndarray],
         lat = ds.lat.values
         lon = ds.lon.values
         ds.close()
+        # Filter out-of-range SST values (satellite noise/errors)
+        sst[(sst < SST_VALID_MIN) | (sst > SST_VALID_MAX)] = np.nan
         return sst, lat, lon
     except Exception as e:
         return None, None, None

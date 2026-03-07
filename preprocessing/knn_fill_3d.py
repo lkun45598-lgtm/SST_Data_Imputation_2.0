@@ -401,7 +401,7 @@ def main():
     results = []
 
     for sid in range(9):
-        input_path = INPUT_DIR / f'jaxa_weighted_series_{sid:02d}.h5'
+        input_path = INPUT_DIR / f'jaxa_filtered_{sid:02d}.h5'
         if input_path.exists():
             result = process_series(sid)
             results.append(result)
