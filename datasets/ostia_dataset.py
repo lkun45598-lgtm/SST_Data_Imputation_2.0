@@ -72,17 +72,24 @@ class SSTDatasetTemporal(Dataset):
             for i in range(start_idx, start_idx + num_valid):
                 sst = f['input_sst'][i].astype(np.float32).copy()
                 mask = f['missing_mask'][i].astype(np.float32)
+                gt = f['ground_truth_sst'][i].astype(np.float32)
 
-                # 用最近邻插值填充缺失区域（=0或NaN）
+                # 步骤1: 用ground_truth填充零值区域（如果GT有值）
+                zero_or_nan = (sst == 0) | np.isnan(sst)
+                has_gt = ~np.isnan(gt)
+                sst[zero_or_nan & has_gt] = gt[zero_or_nan & has_gt]
+
+                # 步骤2: 如果还有NaN或0，用最近邻插值填充
                 invalid = (sst == 0) | np.isnan(sst)
                 if invalid.any():
+                    # 找到所有有效（非0且非NaN）的点
                     valid_mask = (sst != 0) & (~np.isnan(sst))
                     if valid_mask.sum() > 0:
                         indices = ndimage.distance_transform_edt(~valid_mask, return_distances=False, return_indices=True)
                         sst = sst[tuple(indices)]
                     else:
                         # 如果完全没有有效值，用全局均值填充
-                        sst = np.full_like(sst, self.mean)
+                        sst = np.full_like(sst, 299.0)  # ~26°C
 
                 sst_seq.append(sst)
                 mask_seq.append(mask)

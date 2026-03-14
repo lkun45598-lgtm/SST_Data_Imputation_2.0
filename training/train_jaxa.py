@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-JAXA Fine-tuning Training Script - 8 GPU DDP (共享内存版)
+JAXA Fine-tuning Training Script - 8 GPU DDP
 从OSTIA预训练模型继续微调，使用30天输入序列
 
 特点:
@@ -9,10 +9,9 @@ JAXA Fine-tuning Training Script - 8 GPU DDP (共享内存版)
 3. Output Composition: 非挖空区域直接用输入，挖空区域用模型预测
 4. Loss只在 loss_mask = artificial_mask ∩ original_obs_mask 区域计算
 5. 梯度安全的masked loss（乘法而非索引）
-6. 共享内存: 主进程预加载~67GB到/dev/shm，8个DDP进程共享同一份物理内存
 
 作者: Claude Code
-日期: 2026-02-17
+日期: 2026-01-20
 """
 
 import os
@@ -33,7 +32,7 @@ from pathlib import Path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from inference.jaxa_inference_dataset import JAXAFinetuneDataset, preload_shared_data
+from inference.jaxa_inference_dataset import JAXAFinetuneDataset
 from models.fno_cbam_temporal import FNO_CBAM_SST_Temporal
 
 
@@ -149,10 +148,12 @@ def jaxa_combined_loss(pred, target, loss_mask, sst_seq=None,
         loss_grad = torch.tensor(0.0, device=pred.device)
 
     # 时间连续性约束 (可选)
+    # 注意：使用target(ground_truth)而不是被挖空的last_day来计算expected_change
     if sst_seq is not None and alpha_temporal > 0:
-        prev_day = sst_seq[:, -2:-1, :, :]
-        expected_change = target - prev_day
-        predicted_change = pred - prev_day
+        prev_day = sst_seq[:, -2:-1, :, :]  # 第29天（真实数据）
+        # expected_change应该用target（真值）而不是被挖空的输入
+        expected_change = target - prev_day  # 真实的day30 - day29
+        predicted_change = pred - prev_day   # 预测的day30 - day29
         temporal_penalty = F.relu(torch.abs(predicted_change - expected_change) - 0.5)
         loss_temporal = (temporal_penalty * loss_mask.unsqueeze(1)).sum() / (loss_mask.sum() + 1e-8)
     else:
@@ -169,7 +170,7 @@ def jaxa_combined_loss(pred, target, loss_mask, sst_seq=None,
 
 def setup_distributed(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '29510'
+    os.environ['MASTER_PORT'] = '29600'  # 换一个端口
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     torch.cuda.set_device(rank)
 
@@ -182,8 +183,7 @@ def cleanup_distributed():
 # Training & Validation
 # ============================================================================
 
-def train_epoch(model, train_loader, optimizer, device, epoch, rank, norm_mean, norm_std,
-                alpha_mse=1.0, alpha_grad=0.02, alpha_temporal=0.1):
+def train_epoch(model, train_loader, optimizer, device, epoch, rank, norm_mean, norm_std):
     model.train()
     total_loss = 0.0
     total_mse = 0.0
@@ -213,9 +213,9 @@ def train_epoch(model, train_loader, optimizer, device, epoch, rank, norm_mean, 
         loss, loss_mse, loss_grad = jaxa_combined_loss(
             pred, gt_sst, loss_mask,
             sst_seq=sst_seq,
-            alpha_mse=alpha_mse,
-            alpha_grad=alpha_grad,
-            alpha_temporal=alpha_temporal
+            alpha_mse=1.0,
+            alpha_grad=0.02,
+            alpha_temporal=0.1
         )
 
         # Backward
@@ -323,13 +323,14 @@ def valid_epoch(model, valid_loader, device, epoch, rank, norm_mean, norm_std):
 # Main Training Worker
 # ============================================================================
 
-def train_worker(rank, world_size, config, shared_data):
+def train_worker(rank, world_size, config):
     setup_distributed(rank, world_size)
     device = torch.device(f'cuda:{rank}')
     torch.manual_seed(42 + rank)
     np.random.seed(42 + rank)
 
     # 配置
+    data_dir = config['data_dir']
     save_dir = config['save_dir']
     pretrained_path = config['pretrained_path']
     batch_size = config['batch_size']
@@ -339,65 +340,65 @@ def train_worker(rank, world_size, config, shared_data):
     if rank == 0:
         os.makedirs(save_dir, exist_ok=True)
         print("\n" + "="*80)
-        print("JAXA Fine-tuning Training (8 GPU DDP, Shared Memory)")
+        print("JAXA Fine-tuning Training (8 GPU DDP)")
         print("="*80)
         print(f"\n配置:")
+        print(f"  - 数据目录: {data_dir}")
         print(f"  - 预训练模型: {pretrained_path}")
         print(f"  - 保存目录: {save_dir}")
-        print(f"  - Batch size: {batch_size} per GPU x {world_size} GPUs = {batch_size*world_size}")
+        print(f"  - Batch size: {batch_size} per GPU × {world_size} GPUs = {batch_size*world_size}")
         print(f"  - Learning rate: {lr}")
         print(f"  - Epochs: {num_epochs}")
-        print(f"  - 输入: 30天序列 (60通道: 30xSST + 30xmask)")
+        print(f"  - 输入: 30天序列 (60通道: 30×SST + 30×mask)")
         print(f"  - Loss: 只在 artificial_mask ∩ original_obs_mask 区域计算")
-        print(f"  - IO: 共享内存 (零磁盘IO)")
         print()
 
-    # 数据集 - 使用共享内存张量
+    # 数据集
+    # 使用序列0-7做训练（8年），序列8做验证（1年）
+    # 重要: 使用OSTIA预训练模型的归一化参数，确保输入分布一致
     ostia_mean = 299.9221  # OSTIA训练时的mean (Kelvin)
     ostia_std = 2.6919     # OSTIA训练时的std (Kelvin)
 
     train_dataset = JAXAFinetuneDataset(
-        shared_data=shared_data,
+        data_dir=data_dir,
         series_ids=[0, 1, 2, 3, 4, 5, 6, 7],  # 8年训练数据
         window_size=30,
-        stride=24,  # hourly数据每隔24帧取一帧
-        sample_stride=config.get('sample_stride', 24),  # 训练样本间隔，消除hourly重复
         mask_ratio=0.2,
         min_mask_size=10,
         max_mask_size=50,
         normalize=True,
-        mean=ostia_mean,
-        std=ostia_std,
-        seed=42 + rank  # 每个rank不同seed，增加挖空多样性
+        mean=ostia_mean,   # 使用OSTIA归一化参数
+        std=ostia_std,     # 使用OSTIA归一化参数
+        cache_size=100,
+        seed=42,
+        hour_offset=0  # 初始时刻，每个epoch会切换
     )
 
     valid_dataset = JAXAFinetuneDataset(
-        shared_data=shared_data,
+        data_dir=data_dir,
         series_ids=[8],  # 1年验证数据
         window_size=30,
-        stride=24,
-        sample_stride=config.get('sample_stride', 24),  # 验证集也用相同采样
         mask_ratio=0.2,
         min_mask_size=10,
         max_mask_size=50,
         normalize=True,
-        mean=ostia_mean,
-        std=ostia_std,
-        seed=123
+        mean=ostia_mean,   # 使用OSTIA归一化参数
+        std=ostia_std,     # 使用OSTIA归一化参数
+        cache_size=50,
+        seed=123,  # 不同seed确保验证集挖空不同
+        hour_offset=0  # 初始时刻，每个epoch会切换
     )
 
     train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
     valid_sampler = DistributedSampler(valid_dataset, num_replicas=world_size, rank=rank, shuffle=False)
 
-    # 共享内存版: 数据在RAM中，IO不再是瓶颈
-    # num_workers=2 用于并行做mask生成等CPU计算
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, sampler=train_sampler,
-        num_workers=2, pin_memory=True, prefetch_factor=2, persistent_workers=True
+        num_workers=4, pin_memory=True, prefetch_factor=2
     )
     valid_loader = DataLoader(
         valid_dataset, batch_size=batch_size, sampler=valid_sampler,
-        num_workers=1, pin_memory=True, prefetch_factor=2, persistent_workers=True
+        num_workers=2, pin_memory=True, prefetch_factor=2
     )
 
     if rank == 0:
@@ -413,16 +414,16 @@ def train_worker(rank, world_size, config, shared_data):
     if pretrained_path and os.path.exists(pretrained_path):
         if rank == 0:
             print(f"\n加载预训练模型: {pretrained_path}")
-        checkpoint = torch.load(pretrained_path, map_location=device, weights_only=False)
+        checkpoint = torch.load(pretrained_path, map_location=device)
         if 'model_state_dict' in checkpoint:
             model.load_state_dict(checkpoint['model_state_dict'])
         else:
             model.load_state_dict(checkpoint)
         if rank == 0:
-            print("  预训练权重加载成功")
+            print("  ✓ 预训练权重加载成功")
     else:
         if rank == 0:
-            print("\n未找到预训练模型，从头开始训练")
+            print("\n⚠️ 未找到预训练模型，从头开始训练")
 
     model = DDP(model, device_ids=[rank])
 
@@ -431,38 +432,32 @@ def train_worker(rank, world_size, config, shared_data):
         print(f"\n模型参数量: {total_params:,}")
 
     # 优化器
-    weight_decay = config.get('weight_decay', 5e-4)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-6)
 
     # 训练
     best_val_mae = float('inf')
-    patience_counter = 0
-    early_stop_patience = config.get('early_stop_patience', 20)
     norm_mean, norm_std = train_dataset.mean, train_dataset.std
     history = {'train': [], 'valid': []}
 
     if rank == 0:
-        print(f"\n开始训练 ({num_epochs} epochs, early_stop={early_stop_patience})...\n")
+        print(f"\n开始训练 ({num_epochs} epochs)...\n")
 
     for epoch in range(num_epochs):
-        train_sampler.set_epoch(epoch)
-        train_dataset.set_epoch(epoch)  # Shift sample offset so each epoch covers different hours
+        # 每个epoch切换时刻：epoch 0 → 00:00, epoch 1 → 01:00, ..., epoch 23 → 23:00, epoch 24 → 00:00
+        hour_offset = epoch % 24
+        train_dataset.set_hour_offset(hour_offset)
+        valid_dataset.set_hour_offset(hour_offset)
 
-        train_metrics = train_epoch(model, train_loader, optimizer, device, epoch, rank, norm_mean, norm_std,
-                                     alpha_mse=config.get('alpha_mse', 1.0),
-                                     alpha_grad=config.get('alpha_grad', 0.02),
-                                     alpha_temporal=config.get('alpha_temporal', 0.1))
+        train_sampler.set_epoch(epoch)
+
+        if rank == 0:
+            print(f"\n--- Hour offset: {hour_offset:02d}:00 ---")
+
+        train_metrics = train_epoch(model, train_loader, optimizer, device, epoch, rank, norm_mean, norm_std)
         valid_metrics = valid_epoch(model, valid_loader, device, epoch, rank, norm_mean, norm_std)
 
         scheduler.step()
-
-        # Early stopping 逻辑 (所有rank同步判断)
-        improved = valid_metrics['mae'] < best_val_mae
-        if improved:
-            patience_counter = 0
-        else:
-            patience_counter += 1
 
         if rank == 0:
             history['train'].append(train_metrics)
@@ -471,9 +466,9 @@ def train_worker(rank, world_size, config, shared_data):
             print(f"\nEpoch {epoch+1}/{num_epochs}")
             print(f"  Train - Loss: {train_metrics['loss']:.4f} | MAE: {train_metrics['mae']:.3f}K")
             print(f"  Valid - Loss: {valid_metrics['loss']:.4f} | MAE: {valid_metrics['mae']:.3f}K | RMSE: {valid_metrics['rmse']:.3f}K")
-            print(f"  LR: {optimizer.param_groups[0]['lr']:.6f} | Patience: {patience_counter}/{early_stop_patience}")
+            print(f"  LR: {optimizer.param_groups[0]['lr']:.6f}")
 
-            if improved:
+            if valid_metrics['mae'] < best_val_mae:
                 best_val_mae = valid_metrics['mae']
                 torch.save({
                     'epoch': epoch,
@@ -484,7 +479,7 @@ def train_worker(rank, world_size, config, shared_data):
                     'norm_mean': norm_mean,
                     'norm_std': norm_std
                 }, f'{save_dir}/best_model.pth')
-                print(f"  最优模型已保存! MAE: {best_val_mae:.3f}K")
+                print(f"  ✓ 最优模型已保存! MAE: {best_val_mae:.3f}K")
 
             # 定期保存checkpoint
             if (epoch + 1) % 10 == 0:
@@ -497,14 +492,6 @@ def train_worker(rank, world_size, config, shared_data):
                     'norm_mean': norm_mean,
                     'norm_std': norm_std
                 }, f'{save_dir}/checkpoint_epoch_{epoch+1}.pth')
-
-        # Early stopping: 所有rank同步退出
-        should_stop = torch.tensor([1 if patience_counter >= early_stop_patience else 0], device=device)
-        dist.broadcast(should_stop, src=0)
-        if should_stop.item() == 1:
-            if rank == 0:
-                print(f"\nEarly stopping! 验证集MAE连续{early_stop_patience}个epoch未改善。")
-            break
 
     if rank == 0:
         # 保存最终模型
@@ -521,9 +508,8 @@ def train_worker(rank, world_size, config, shared_data):
             json.dump(history, f, indent=2)
 
         # 保存配置
-        config_save = {k: v for k, v in config.items() if k != 'shared_data'}
         with open(f'{save_dir}/config.json', 'w') as f:
-            json.dump(config_save, f, indent=2)
+            json.dump(config, f, indent=2)
 
         print("\n" + "="*80)
         print(f"训练完成! 最优MAE: {best_val_mae:.3f}K")
@@ -533,157 +519,19 @@ def train_worker(rank, world_size, config, shared_data):
     cleanup_distributed()
 
 
-# ============================================================================
-# Experiment Management
-# ============================================================================
-
-EXPERIMENTS_DIR = Path('/data1/user/lz/FNO_CBAM/data_for_agent_FNO_CBAM_H20/FNO_CBAM/experiments')
-EXPERIMENT_LOG = EXPERIMENTS_DIR / 'experiment_log.jsonl'
-
-
-def get_experiment_history():
-    """读取所有历史实验记录，返回列表（按时间排序）"""
-    if not EXPERIMENT_LOG.exists():
-        return []
-    records = []
-    with open(EXPERIMENT_LOG, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                records.append(json.loads(line))
-    return records
-
-
-def print_experiment_history():
-    """打印历史实验表格，方便调参参考"""
-    records = get_experiment_history()
-    if not records:
-        print("暂无历史实验记录。")
-        return
-
-    print(f"\n{'='*100}")
-    print(f"历史实验记录 ({len(records)} 次)")
-    print(f"{'='*100}")
-    print(f"{'ID':<6} {'名称':<30} {'KNN':<8} {'LR':<10} {'BS':<5} "
-          f"{'Epochs':<8} {'BestMAE':<10} {'BestRMSE':<10} {'日期':<12}")
-    print("-" * 100)
-    for r in records:
-        cfg = r.get('config', {})
-        res = r.get('results', {})
-        print(f"{r.get('id','?'):<6} {r.get('name','?'):<30} "
-              f"{cfg.get('knn_method','?'):<8} "
-              f"{cfg.get('lr','?'):<10} {cfg.get('batch_size','?'):<5} "
-              f"{res.get('actual_epochs','?'):<8} "
-              f"{res.get('best_val_mae','?'):<10} "
-              f"{res.get('best_val_rmse','?'):<10} "
-              f"{r.get('date','?'):<12}")
-    print(f"{'='*100}\n")
-
-
-def create_experiment_dir(experiment_name):
-    """创建带自增编号的实验目录，返回路径"""
-    records = get_experiment_history()
-    next_id = max([r.get('id', 0) for r in records], default=0) + 1
-    dir_name = f"run{next_id:03d}_{experiment_name}"
-    exp_dir = EXPERIMENTS_DIR / dir_name
-    exp_dir.mkdir(parents=True, exist_ok=True)
-    return exp_dir, next_id, dir_name
-
-
-def log_experiment(exp_id, name, config, results, save_dir):
-    """追加一条实验记录到 experiment_log.jsonl"""
-    import time as _time
-    record = {
-        'id': exp_id,
-        'name': name,
-        'date': _time.strftime('%Y-%m-%d'),
-        'save_dir': str(save_dir),
-        'config': {
-            'knn_method': config.get('knn_method', '3d_spatiotemporal'),
-            'pretrained_path': config.get('pretrained_path', ''),
-            'lr': config.get('lr'),
-            'batch_size': config.get('batch_size'),
-            'num_epochs': config.get('num_epochs'),
-            'early_stop_patience': config.get('early_stop_patience'),
-            'stride': config.get('stride'),
-            'sample_stride': config.get('sample_stride'),
-            'weight_decay': config.get('weight_decay', 5e-4),
-            'alpha_mse': config.get('alpha_mse', 1.0),
-            'alpha_grad': config.get('alpha_grad', 0.02),
-            'alpha_temporal': config.get('alpha_temporal', 0.1),
-            'world_size': config.get('world_size', 8),
-        },
-        'results': results,
-    }
-    with open(EXPERIMENT_LOG, 'a') as f:
-        f.write(json.dumps(record, ensure_ascii=False) + '\n')
-
-    # 同时保存一份到实验目录
-    with open(Path(save_dir) / 'experiment_record.json', 'w') as f:
-        json.dump(record, f, indent=2, ensure_ascii=False)
-
-
 def main():
-    # ---- 打印历史实验，方便调参参考 ----
-    print_experiment_history()
-
-    # ---- 配置 ----
-    npy_dir = '/data1/user/lz/FNO_CBAM/data_for_agent_FNO_CBAM_H20/sst_knn_npy_cache'
-
+    # 配置
     config = {
-        'npy_dir': npy_dir,
-        'pretrained_path': '/data1/user/lz/FNO_CBAM/data_for_agent_FNO_CBAM_H20/FNO_CBAM/experiments/jaxa_finetune_8years/best_model.pth',
-        'batch_size': 2,       # per GPU
-        'num_epochs': 300,
-        'lr': 5e-4,
-        'stride': 24,
-        'sample_stride': 1,
-        'early_stop_patience': 40,
-        'weight_decay': 5e-4,
-        'alpha_mse': 1.0,
-        'alpha_grad': 0.02,
-        'alpha_temporal': 0.1,
-        'knn_method': '3d_progressive',
-        'world_size': 4,
+        'data_dir': '/data1/user/lz/FNO_CBAM/data_for_agent_FNO_CBAM_H20/FNO_CBAM/jaxa_knn_filled',
+        'save_dir': '/data1/user/lz/FNO_CBAM/data_for_agent_FNO_CBAM_H20/FNO_CBAM/experiments/jaxa_finetune_8years',
+        'pretrained_path': '/home/lz/FNO_CBAM/data_for_agent_FNO_CBAM_H20/FNO_CBAM/experiments/temporal_30days_composition_fast/best_model.pth',
+        'batch_size': 2,  # per GPU
+        'num_epochs': 100,  # 100 epochs
+        'lr': 5e-4,  # 微调用较小学习率
     }
 
-    # ---- 创建实验目录（自动递增编号） ----
-    exp_name = f"jaxa_3dknn_progressive_stride{config['sample_stride']}_lr{config['lr']}"
-    exp_dir, exp_id, dir_name = create_experiment_dir(exp_name)
-    config['save_dir'] = str(exp_dir)
-
-    print(f"本次实验: #{exp_id} - {dir_name}")
-    print(f"保存目录: {exp_dir}")
-
-    world_size = config['world_size']
-
-    # Step 1: 预加载所有数据到共享内存（在mp.spawn之前）
-    all_series = [0, 1, 2, 3, 4, 5, 6, 7, 8]
-    shared_data = preload_shared_data(npy_dir, all_series)
-
-    # Step 2: 启动DDP训练
-    mp.spawn(train_worker, args=(world_size, config, shared_data), nprocs=world_size, join=True)
-
-    # Step 3: 训练结束后，读取结果并记录
-    history_path = exp_dir / 'training_history.json'
-    results = {}
-    if history_path.exists():
-        with open(history_path, 'r') as f:
-            history = json.load(f)
-        if history.get('valid'):
-            val_maes = [e['mae'] for e in history['valid']]
-            val_rmses = [e['rmse'] for e in history['valid']]
-            best_idx = int(np.argmin(val_maes))
-            results = {
-                'best_val_mae': round(val_maes[best_idx], 4),
-                'best_val_rmse': round(val_rmses[best_idx], 4),
-                'best_epoch': best_idx + 1,
-                'actual_epochs': len(val_maes),
-                'final_train_mae': round(history['train'][-1]['mae'], 4),
-                'final_val_mae': round(val_maes[-1], 4),
-            }
-    log_experiment(exp_id, dir_name, config, results, exp_dir)
-    print(f"\n实验记录已保存到: {EXPERIMENT_LOG}")
+    world_size = 8  # 8卡DDP
+    mp.spawn(train_worker, args=(world_size, config), nprocs=world_size, join=True)
 
 
 if __name__ == '__main__':

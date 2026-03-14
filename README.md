@@ -1,93 +1,154 @@
-# FNO-CBAM SST Missing Value Imputation 2.0
+# FNO-CBAM SST缺失值重建项目
 
-基于 Fourier Neural Operator (FNO) 和 Convolutional Block Attention Module (CBAM) 的海表温度 (SST) 缺失值重建系统。
+基于Fourier Neural Operator (FNO) 和 Convolutional Block Attention Module (CBAM) 的海表温度 (SST) 缺失值重建系统。
 
-## 相比 1.0 的主要改进
+## 项目概述
 
-- **昼夜感知时序填充**：权重 `w = (1/dt) * exp(-α * hour_diff)` 避免昼夜温差混叠
-- **四步预处理流水线**：时序填充 → 高斯低通滤波 → 3D时空KNN → KNN后滤波
-- **SST质量过滤**：剔除原始JAXA数据中因云检测失败引入的异常低温像素（< 285K）
-- **小时级数据处理**：从日尺度升级到小时尺度，更充分利用卫星观测
-- **3D时空KNN**：渐进式密度分带策略，边缘优先填充
-- **KNN后高斯滤波**：对非观测像素再次滤波，进一步消除KNN残留噪点
+本项目针对JAXA卫星SST数据中由于云层遮挡导致的缺失值问题，采用深度学习方法进行重建。主要特点：
+
+- **两阶段训练策略**：OSTIA预训练 → JAXA微调
+- **30天时间序列输入**：利用时间连续性信息
+- **FNO-CBAM架构**：结合傅里叶神经算子和注意力机制
+- **Output Composition**：观测区域保留原值，仅对缺失区域进行预测
+- **高斯滤波后处理**：平滑重建结果，减少噪声
 
 ## 目录结构
 
 ```
-SST_Data_Imputation_2.0/
-├── preprocessing/                  # 数据预处理 Pipeline
-│   ├── temporal_weighted_fill.py   # Step1: 昼夜感知时序加权填充
-│   ├── lowpass_filter.py           # Step2: 高斯低通滤波 (σ=1.5)
-│   ├── knn_fill_3d.py              # Step3: 3D时空KNN填充
-│   ├── post_knn_filter.py          # Step4: KNN后高斯滤波 (σ=1.5)
-│   └── knn_fill.py                 # 2D KNN填充 (备用)
+Data_Imputation/
+├── models/                     # 模型定义
+│   └── fno_cbam_temporal.py    # FNO-CBAM时序模型
 │
-├── models/                         # 模型定义
-│   └── fno_cbam_temporal.py        # FNO-CBAM时序模型
+├── losses/                     # 损失函数
+│   └── temporal_loss.py        # 组合损失 (MSE + 梯度 + 时间连续性)
 │
-├── losses/                         # 损失函数
-│   └── temporal_loss.py            # 组合损失 (MSE + 梯度 + 时间连续性)
+├── datasets/                   # 数据集定义
+│   ├── ostia_dataset.py        # OSTIA预训练数据集
+│   ├── ostia_dataset_filled.py # OSTIA预填充数据集 (加速加载)
+│   └── jaxa_dataset.py         # JAXA微调数据集
 │
-├── datasets/                       # 数据集定义
-│   ├── jaxa_dataset.py             # JAXA微调数据集
-│   ├── ostia_dataset.py            # OSTIA预训练数据集
-│   └── ostia_dataset_filled.py     # OSTIA预填充数据集
+├── preprocessing/              # 数据预处理Pipeline
+│   ├── temporal_weighted_fill.py   # Step1: 时间加权填充 (hourly→daily)
+│   ├── lowpass_filter.py           # Step2: 低通滤波
+│   └── knn_fill.py                 # Step3: KNN空间填充
 │
-├── training/                       # 训练脚本
-│   ├── train_jaxa.py               # JAXA微调 (8 GPU DDP)
-│   ├── train_ostia.py              # OSTIA预训练 (8 GPU DDP)
-│   └── resume_train_jaxa.py        # 断点续训
+├── training/                   # 训练脚本
+│   ├── train_ostia.py          # OSTIA预训练 (8 GPU DDP)
+│   └── train_jaxa.py           # JAXA微调 (8 GPU DDP)
 │
-├── inference/                      # 推理与评估
-│   ├── fill_jaxa.py                # JAXA数据填充
-│   ├── evaluate.py                 # 模型评估
-│   ├── jaxa_inference_dataset.py   # 推理数据集
-│   └── run_inference_vis.py        # 推理+可视化
+├── inference/                  # 推理与评估
+│   ├── fill_jaxa.py            # JAXA数据填充
+│   ├── evaluate.py             # 模型评估 (VRMSE, MAE, RMSE)
+│   └── jaxa_inference_dataset.py   # 推理数据集
 │
-├── postprocessing/                 # 后处理
-│   └── gaussian_filter.py          # 高斯滤波平滑
+├── postprocessing/             # 后处理
+│   └── gaussian_filter.py      # 高斯滤波平滑
 │
-├── visualization/                  # 可视化工具
-│   ├── plot_reconstruction.py      # 重建结果可视化
-│   ├── daily_missing_rate_analysis.py  # 缺失率分析
-│   └── compare_sigma.py            # 滤波参数对比
+├── visualization/              # 可视化
+│   ├── plot_reconstruction.py  # 重建结果可视化
+│   └── compare_sigma.py        # 高斯滤波sigma对比
 │
-├── scripts/                        # 运行脚本
-│   └── run_preprocessing.sh        # 预处理全流程
+├── sst_pipeline/               # 统一Pipeline模块
+│   ├── config.py               # 配置管理
+│   ├── pipeline.py             # 主Pipeline类
+│   ├── run.py                  # 命令行入口
+│   ├── data/loader.py          # 数据加载器
+│   ├── model/wrapper.py        # 模型封装
+│   ├── inference/predictor.py  # 推理器
+│   ├── postprocess/gaussian.py # 高斯后处理
+│   └── visualization/plotter.py # 可视化绘图
 │
-└── docs/                           # 文档
+├── scripts/                    # Shell脚本
+└── docs/                       # 文档
 ```
 
-## 数据预处理流程
+## 数据流程
+
+### 1. 数据预处理 (JAXA原始数据 → 模型输入)
 
 ```
-JAXA hourly NC files (每小时卫星观测，平均缺失率 ~58%)
+JAXA hourly NC files
         ↓
-[Step 1: temporal_weighted_fill.py]
-  昼夜感知时序加权填充
-  w = (1/dt) * exp(-α * hour_diff), α=0.5
-  48h回溯窗口，同时刻观测权重最高
-  SST质量过滤：剔除 < 285K 的异常像素
-  → 缺失率降至 ~13.5%
+[temporal_weighted_fill.py] 时间加权填充，hourly→daily
         ↓
-[Step 2: lowpass_filter.py]
-  高斯低通滤波 (σ=1.5)
-  仅对时序填充像素滤波，真实观测不动
-  → 消除昼夜温差引起的伪影
+    jaxa_weighted_aligned/*.h5
         ↓
-[Step 3: knn_fill_3d.py]
-  3D时空KNN填充
-  渐进式密度分带 (16 bands)，边缘优先
-  ±60h时间窗口，K=30
-  → 缺失率降至 0%
+[lowpass_filter.py] 低通滤波去噪
         ↓
-[Step 4: post_knn_filter.py]
-  KNN后高斯滤波 (σ=1.5)
-  仅对非原始观测的海洋像素滤波
-  真实卫星观测值保持不变
-  → 消除KNN填充残留噪点
+    jaxa_filtered/*.h5
         ↓
-模型输入数据 (sst_post_filtered/*.h5)
+[knn_fill.py] KNN空间填充
+        ↓
+    jaxa_knn_filled/*.h5  ← 模型输入数据
+```
+
+### 2. 训练流程
+
+```
+Stage 1: OSTIA预训练
+    - 数据: OSTIA SST (全球, 高覆盖率)
+    - 目的: 学习SST的空间模式和时间动态
+    - 脚本: training/train_ostia.py
+
+Stage 2: JAXA微调
+    - 数据: JAXA SST (日本海域, 高分辨率)
+    - 目的: 适应目标区域的特征
+    - 脚本: training/train_jaxa.py
+```
+
+### 3. 推理流程
+
+```
+30天KNN填充数据
+        ↓
+[模型推理] FNO-CBAM预测
+        ↓
+[Output Composition] 观测区域保留原值
+        ↓
+[高斯滤波] sigma=1.0平滑
+        ↓
+    最终重建结果
+```
+
+## 快速开始
+
+### 使用Pipeline API
+
+```python
+from sst_pipeline import Pipeline
+
+# 初始化Pipeline
+pipeline = Pipeline()
+
+# 处理单个日期
+result = pipeline.process(
+    date="2017-08-08",
+    apply_gaussian=True,
+    sigma=1.0,
+    visualize=True
+)
+
+# 查看可用日期
+dates = pipeline.get_available_dates()
+```
+
+### 使用命令行
+
+```bash
+# 处理单个日期
+python -m sst_pipeline.run --date 2017-08-08 --sigma 1.0
+
+# 处理日期范围
+python -m sst_pipeline.run --start-date 2017-08-01 --end-date 2017-08-10
+
+# 查看可用日期
+python -m sst_pipeline.run --list-dates
+
+# 自定义参数
+python -m sst_pipeline.run --date 2017-08-08 \
+    --sigma 1.5 \
+    --mask-ratio 0.3 \
+    --no-visualize
 ```
 
 ## 模型架构
@@ -115,28 +176,73 @@ JAXA hourly NC files (每小时卫星观测，平均缺失率 ~58%)
 
 ```
 L_total = α₁·L_mse + α₂·L_gradient + α₃·L_temporal
+
+其中:
+- L_mse: 缺失区域MSE损失
+- L_gradient: 空间梯度一致性损失
+- L_temporal: 时间连续性损失
 ```
 
-## 快速开始
+## 评估指标
 
-### 运行预处理
+| 指标 | 公式 | 说明 |
+|------|------|------|
+| RMSE | √(mean((pred-gt)²)) | 均方根误差 |
+| MAE | mean(\|pred-gt\|) | 平均绝对误差 |
+| VRMSE | RMSE / std(gt) | 相对于标准差的RMSE |
+| Max Error | max(\|pred-gt\|) | 最大误差 |
 
-```bash
-# 全流程 (Step1 → Step2 → Step3 → Step4)
-bash scripts/run_preprocessing.sh
+### 当前模型性能 (JAXA测试集)
 
-# 单步运行
-bash scripts/run_preprocessing.sh --step 2        # 仅低通滤波
-bash scripts/run_preprocessing.sh --step 2 3      # 滤波+KNN
-bash scripts/run_preprocessing.sh --step 4        # 仅KNN后滤波
-bash scripts/run_preprocessing.sh --series 0 1     # 指定系列
+| 指标 | 值 |
+|------|------|
+| VRMSE | 0.215 ± 0.062 |
+| MAE | 0.095 ± 0.014 K |
+| RMSE | 0.126 ± 0.020 K |
+| Max Error | 0.620 ± 0.153 K |
+
+## 配置说明
+
+### 模型配置
+
+```python
+# models/fno_cbam_temporal.py
+FNO_CBAM_SST_Temporal(
+    out_size=(451, 351),  # 输出尺寸 (H, W)
+    modes1=80,            # 傅里叶模式数 (纬度方向)
+    modes2=64,            # 傅里叶模式数 (经度方向)
+    width=64,             # 网络宽度
+    depth=6               # FNO块数量
+)
 ```
 
-### 训练
+### 训练配置
 
-```bash
-# JAXA微调 (4 GPU DDP)
-CUDA_VISIBLE_DEVICES=0,1,2,3 python training/train_jaxa.py
+```python
+# OSTIA预训练
+batch_size = 4 × 8 GPUs = 32
+learning_rate = 1e-3
+epochs = 60
+optimizer = AdamW
+scheduler = StepLR(step=15, gamma=0.5)
+
+# JAXA微调
+batch_size = 2 × 8 GPUs = 16
+learning_rate = 5e-4
+epochs = 100
+optimizer = AdamW
+scheduler = CosineAnnealing
+```
+
+### 数据路径配置
+
+```python
+# sst_pipeline/config.py
+PathConfig(
+    jaxa_knn_filled_dir = '/path/to/jaxa_knn_filled',
+    model_path = '/path/to/best_model.pth',
+    output_dir = '/path/to/output'
+)
 ```
 
 ## 依赖环境
@@ -150,3 +256,42 @@ netCDF4
 matplotlib
 tqdm
 ```
+
+## 文件说明
+
+### 核心文件
+
+| 文件 | 说明 |
+|------|------|
+| `models/fno_cbam_temporal.py` | FNO-CBAM模型定义，包含SpectralConv2d和CBAM模块 |
+| `losses/temporal_loss.py` | 组合损失函数，支持缺失区域加权 |
+| `training/train_ostia.py` | OSTIA预训练，8卡DDP，Output Composition |
+| `training/train_jaxa.py` | JAXA微调，加载预训练权重 |
+| `inference/evaluate.py` | 评估脚本，计算VRMSE等指标 |
+| `sst_pipeline/pipeline.py` | 统一Pipeline，一键处理 |
+
+### 预处理文件
+
+| 文件 | 输入 | 输出 |
+|------|------|------|
+| `temporal_weighted_fill.py` | JAXA hourly NC | jaxa_weighted_aligned/*.h5 |
+| `lowpass_filter.py` | jaxa_weighted_aligned/*.h5 | jaxa_filtered/*.h5 |
+| `knn_fill.py` | jaxa_filtered/*.h5 | jaxa_knn_filled/*.h5 |
+
+## 注意事项
+
+1. **归一化参数**：JAXA微调使用OSTIA预训练的归一化参数 (mean=299.92K, std=2.69K)
+2. **Output Composition**：推理时观测区域直接使用输入值，模型只预测缺失区域
+3. **高斯滤波**：推荐sigma=1.0，过大会模糊细节，过小效果不明显
+4. **GPU内存**：单卡推理需要约8GB显存
+
+## 作者
+
+Claude Code
+
+## 更新日志
+
+- 2026-01-23: 项目重构，模块化整理
+- 2026-01-22: JAXA 8年数据微调完成
+- 2026-01-20: 添加高斯滤波后处理
+- 2026-01-19: OSTIA预训练完成
