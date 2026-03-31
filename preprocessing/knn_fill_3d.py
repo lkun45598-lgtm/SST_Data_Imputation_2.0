@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-3D Spatiotemporal KNN Fill for Hourly SST Data — Progressive Band Strategy
+3D Spatiotemporal KNN Fill for Hourly SST Data — Progressive Band Strategy (Causal)
 
-Replaces batch 3D KNN with progressive density-banded 3D spatiotemporal KNN.
-For each frame t, considers spatial + temporal neighbors within +/-60 hours.
+渐进密度分带 3D 时空 KNN 填充，仅使用过去数据（因果性）。
+对每一帧 t，只使用 [t-120h, t] 范围内的时空邻居。
 
-Algorithm (Progressive):
+Algorithm (Progressive, Causal):
   For each frame:
     1. Compute 2D missing density for each NaN ocean pixel
     2. Sort by density, split into NUM_BANDS bands (low density = edge first)
-    3. Build base 3D cKDTree from all known pixels in [t-60h, t+60h]
+    3. Build base 3D cKDTree from all known pixels in [t-120h, t] (past only)
     4. Fill band-by-band: each band queries base tree + supplementary tree
        (built from previously filled bands), merges K nearest, IDW interpolation
   Pass 2: Re-run on remaining NaN using Pass 1 results
@@ -28,7 +28,7 @@ import multiprocessing as mp
 # ============================================================================
 # Parameters (aligned with daily pipeline: time_scale=5.0, k=30, window=30days)
 # ============================================================================
-HALF_WINDOW = 60           # +/-60 hours (total 120h = 5 days)
+LOOKBACK_WINDOW = 120      # past 120 hours (5 days), causal (no future data)
 TIME_SCALE = 5.0 / 24     # ~0.2083: 1 hour = 0.208 spatial pixels
 K = 30
 POWER = 2
@@ -50,15 +50,12 @@ _g_ocean = None      # (H, W) bool
 
 def _progressive_fill_frame(t):
     """
-    Worker function: fill NaN ocean pixels in frame t using progressive
-    density-banded 3D spatiotemporal KNN.
+    Worker: 对帧 t 执行渐进密度分带 3D 时空 KNN 填充（因果性，只用过去数据）。
 
-    1. Compute 2D missing density for each NaN pixel
-    2. Split into NUM_BANDS bands by density percentile (low=edge first)
-    3. Build base 3D KDTree from known pixels in temporal window
-    4. Fill band-by-band: base tree + supplementary tree from prior bands
-
-    Reads from module-level globals (_g_sst, _g_ocean) shared via fork COW.
+    1. 计算每个 NaN 像素的 2D 缺失密度
+    2. 按密度分 NUM_BANDS 个 band（低密度=边缘优先）
+    3. 用 [t-LOOKBACK_WINDOW, t] 范围内的已知像素建 3D KDTree（不含未来）
+    4. 逐 band 填充：base tree + 前序 band 的补充 tree
 
     Returns:
         (frame_index, filled_frame, num_filled)
@@ -74,9 +71,9 @@ def _progressive_fill_frame(t):
     if n_miss == 0:
         return t, frame, 0
 
-    # Temporal window bounds
-    t0 = max(0, t - HALF_WINDOW)
-    t1 = min(T, t + HALF_WINDOW + 1)
+    # Temporal window bounds (causal: only past data, no future)
+    t0 = max(0, t - LOOKBACK_WINDOW)
+    t1 = t + 1  # include current frame only, no future
 
     # Extract window (view, no copy)
     window = _g_sst[t0:t1]
@@ -323,7 +320,7 @@ def process_series(series_id):
         f.attrs['num_frames'] = T
         f.attrs['knn_k'] = K
         f.attrs['knn_time_scale'] = float(TIME_SCALE)
-        f.attrs['knn_temporal_window'] = HALF_WINDOW * 2
+        f.attrs['knn_temporal_window'] = LOOKBACK_WINDOW
         f.attrs['knn_power'] = POWER
         f.attrs['knn_method'] = '3d_progressive'
         f.attrs['knn_num_bands'] = NUM_BANDS
@@ -388,7 +385,7 @@ def main():
     print("3D Progressive Density-Banded KNN Fill for Hourly SST Data")
     print("=" * 70)
     print(f"\nParameters:")
-    print(f"  Temporal window: +/-{HALF_WINDOW}h ({HALF_WINDOW*2}h total, = {HALF_WINDOW*2/24:.0f} days)")
+    print(f"  Temporal window: past {LOOKBACK_WINDOW}h ({LOOKBACK_WINDOW/24:.0f} days, causal/no future)")
     print(f"  Time scale: {TIME_SCALE:.4f} (1h ~ {TIME_SCALE:.3f} spatial px)")
     print(f"  K: {K}, Power: {POWER}")
     print(f"  Progressive bands: {NUM_BANDS}, Density radius: {DENSITY_RADIUS}")
