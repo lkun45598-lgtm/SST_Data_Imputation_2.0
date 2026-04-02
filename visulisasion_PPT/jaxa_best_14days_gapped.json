@@ -1,0 +1,86 @@
+[
+  {
+    "date": "2023-03-04",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/202303/04/20230304100000.nc",
+    "missing_rate": 22.59808845174699,
+    "gap_from_prev": 0
+  },
+  {
+    "date": "2023-03-05",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/202303/05/20230305130000.nc",
+    "missing_rate": 22.23675150504419,
+    "gap_from_prev": 1
+  },
+  {
+    "date": "2023-03-06",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/202303/06/20230306230000.nc",
+    "missing_rate": 20.87921112311356,
+    "gap_from_prev": 1
+  },
+  {
+    "date": "2023-03-07",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/202303/07/20230307100000.nc",
+    "missing_rate": 17.958825275898445,
+    "gap_from_prev": 1
+  },
+  {
+    "date": "2023-03-08",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/202303/08/20230308070000.nc",
+    "missing_rate": 17.822376358961726,
+    "gap_from_prev": 1
+  },
+  {
+    "date": "2023-03-09",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/202303/09/20230309150000.nc",
+    "missing_rate": 18.704240655460165,
+    "gap_from_prev": 1
+  },
+  {
+    "date": "2023-03-10",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/202303/10/20230310090000.nc",
+    "missing_rate": 19.498297547078035,
+    "gap_from_prev": 1
+  },
+  {
+    "date": "2023-03-11",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/202303/11/20230311110000.nc",
+    "missing_rate": 18.59874542801372,
+    "gap_from_prev": 1
+  },
+  {
+    "date": "2023-03-12",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/202303/12/20230312030000.nc",
+    "missing_rate": 20.78129639105249,
+    "gap_from_prev": 1
+  },
+  {
+    "date": "2023-03-15",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/202303/15/20230315090000.nc",
+    "missing_rate": 21.455960480350726,
+    "gap_from_prev": 3
+  },
+  {
+    "date": "2023-03-17",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/202303/17/20230317120000.nc",
+    "missing_rate": 23.088293820001137,
+    "gap_from_prev": 2
+  },
+  {
+    "date": "2023-03-20",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/202303/20/20230320130000.nc",
+    "missing_rate": 20.70928168489144,
+    "gap_from_prev": 3
+  },
+  {
+    "date": "2023-03-22",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/202303/22/20230322100000.nc",
+    "missing_rate": 21.026399075179565,
+    "gap_from_prev": 2
+  },
+  {
+    "date": "2023-03-23",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/202303/23/20230323120000.nc",
+    "missing_rate": 21.08135766672352,
+    "gap_from_prev": 1
+  }
+]

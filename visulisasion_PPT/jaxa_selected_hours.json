@@ -1,0 +1,72 @@
+[
+  {
+    "date": "2015-07-07",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/201507/07/20150707190000.nc",
+    "missing_rate": 97.81934416080757
+  },
+  {
+    "date": "2015-07-08",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/201507/08/20150708070000.nc",
+    "missing_rate": 89.93247042027531
+  },
+  {
+    "date": "2015-07-09",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/201507/09/20150709040000.nc",
+    "missing_rate": 81.31281545915692
+  },
+  {
+    "date": "2015-07-10",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/201507/10/20150710210000.nc",
+    "missing_rate": 79.28061098792806
+  },
+  {
+    "date": "2015-07-11",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/201507/11/20150711010000.nc",
+    "missing_rate": 58.478468234565796
+  },
+  {
+    "date": "2015-07-12",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/201507/12/20150712020000.nc",
+    "missing_rate": 82.46062880209222
+  },
+  {
+    "date": "2015-07-13",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/201507/13/20150713050000.nc",
+    "missing_rate": 83.53642743886647
+  },
+  {
+    "date": "2015-07-14",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/201507/14/20150714000000.nc",
+    "missing_rate": 91.81748693943817
+  },
+  {
+    "date": "2015-07-15",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/201507/15/20150715070000.nc",
+    "missing_rate": 93.61406434577167
+  },
+  {
+    "date": "2015-07-16",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/201507/16/20150716010000.nc",
+    "missing_rate": 96.11120586730343
+  },
+  {
+    "date": "2015-07-17",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/201507/17/20150717160000.nc",
+    "missing_rate": 98.96842091964044
+  },
+  {
+    "date": "2015-07-18",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/201507/18/20150718080000.nc",
+    "missing_rate": 95.78334944188602
+  },
+  {
+    "date": "2015-07-19",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/201507/19/20150719000000.nc",
+    "missing_rate": 97.80291975413927
+  },
+  {
+    "date": "2015-07-20",
+    "file": "/data/sst_data/sst_missing_value_imputation/jaxa_data/jaxa_extract_L3/201507/20/20150720230000.nc",
+    "missing_rate": 79.48844290307704
+  }
+]

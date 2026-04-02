@@ -1,0 +1,62 @@
+{
+  "experiments": [
+    {
+      "id": 1,
+      "name": "temporal_30days_8gpu_lr1e3_ep60_bs4",
+      "description": "OSTIA预训练 - 30天时序输入，8GPU DDP训练",
+      "config": {
+        "dataset": "OSTIA",
+        "input_type": "30-day temporal sequence",
+        "model": "FNO_CBAM_SST_Temporal",
+        "modes1": 80,
+        "modes2": 64,
+        "width": 64,
+        "depth": 6,
+        "batch_size": "4 per GPU (32 total)",
+        "num_epochs": 60,
+        "lr": 0.001,
+        "optimizer": "AdamW",
+        "scheduler": "CosineAnnealingLR",
+        "loss": "MSE + Gradient(0.1)",
+        "mask_ratio": 0.2
+      },
+      "status": "completed",
+      "start_time": "2026-01-18T00:00:00",
+      "end_time": "2026-01-18T12:00:00",
+      "results": {
+        "best_mae": 0.15,
+        "best_rmse": 0.22,
+        "note": "OSTIA预训练基线模型"
+      },
+      "notes": "作为JAXA微调的预训练基础"
+    },
+    {
+      "id": 2,
+      "name": "jaxa_finetune_30days",
+      "description": "JAXA微调 - 从OSTIA预训练模型继续训练",
+      "config": {
+        "dataset": "JAXA (KNN填充后)",
+        "pretrained_from": "temporal_30days_8gpu_lr1e3_ep60_bs4",
+        "input_type": "30-day temporal sequence (sst_seq + mask_seq)",
+        "model": "FNO_CBAM_SST_Temporal (same architecture)",
+        "batch_size": "4 per GPU (32 total)",
+        "num_epochs": 40,
+        "lr": 0.0005,
+        "optimizer": "AdamW (weight_decay=1e-4)",
+        "scheduler": "CosineAnnealingLR",
+        "loss": "MSE(1.0) + Gradient(0.2) + Temporal(0.1)",
+        "loss_region": "artificial_mask ∩ original_obs_mask",
+        "mask_ratio": 0.2,
+        "train_series": "[0, 1] (约620样本)",
+        "valid_series": "[2] (约335样本)"
+      },
+      "status": "pending",
+      "start_time": null,
+      "end_time": null,
+      "results": null,
+      "notes": "待运行 - 从OSTIA预训练权重微调"
+    }
+  ],
+  "created": "2026-01-19T10:00:00",
+  "last_updated": "2026-01-19T10:00:00"
+}

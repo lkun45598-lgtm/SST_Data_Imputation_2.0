@@ -1,0 +1,59 @@
+{
+  "num_series": 3,
+  "total_frames": 1042,
+  "series": [
+    {
+      "series_id": 0,
+      "start_year": 2,
+      "start_hour_offset": 17520,
+      "actual_start_date": "2017-07-06",
+      "actual_end_date": "2018-07-05",
+      "num_frames": 360,
+      "original_missing_rate_avg": 71.97141661911309,
+      "filled_missing_rate_avg": 40.19268671707696,
+      "improvement_avg": 31.778729902036133,
+      "file_path": "/data1/user/lz/FNO_CBAM/data_for_agent_FNO_CBAM_H20/FNO_CBAM/jaxa_weighted_aligned/jaxa_weighted_series_00.h5",
+      "file_size_mb": 75.20788478851318
+    },
+    {
+      "series_id": 1,
+      "start_year": 1,
+      "start_hour_offset": 8760,
+      "actual_start_date": "2016-07-06",
+      "actual_end_date": "2017-07-05",
+      "num_frames": 317,
+      "original_missing_rate_avg": 73.87371703752406,
+      "filled_missing_rate_avg": 41.59596170829533,
+      "improvement_avg": 32.27775532922875,
+      "file_path": "/data1/user/lz/FNO_CBAM/data_for_agent_FNO_CBAM_H20/FNO_CBAM/jaxa_weighted_aligned/jaxa_weighted_series_01.h5",
+      "file_size_mb": 66.02689266204834
+    },
+    {
+      "series_id": 2,
+      "start_year": 6,
+      "start_hour_offset": 52560,
+      "actual_start_date": "2021-07-05",
+      "actual_end_date": "2022-07-04",
+      "num_frames": 365,
+      "original_missing_rate_avg": 74.69132542971501,
+      "filled_missing_rate_avg": 38.828841154267145,
+      "improvement_avg": 35.862484275447855,
+      "file_path": "/data1/user/lz/FNO_CBAM/data_for_agent_FNO_CBAM_H20/FNO_CBAM/jaxa_weighted_aligned/jaxa_weighted_series_02.h5",
+      "file_size_mb": 80.47916793823242
+    }
+  ],
+  "creation_date": "2026-01-18T21:11:57.360703",
+  "parameters": {
+    "base_start_date": "2015-07-07T00:00:00",
+    "selected_years": [
+      2,
+      1,
+      6
+    ],
+    "hours_per_year": 8760,
+    "frames_per_series": 365,
+    "interval": 24,
+    "lookback_window": 48,
+    "num_workers": 236
+  }
+}

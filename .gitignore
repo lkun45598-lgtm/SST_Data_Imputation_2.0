@@ -1,0 +1,38 @@
+# Data files
+*.npy
+*.h5
+*.hdf5
+*.nc
+*.pth
+*.pt
+
+# Cache
+__pycache__/
+*.pyc
+npy_cache/
+jaxa_knn_filled/
+
+# Results & generated output
+*.png
+*.csv
+inference_results/
+evaluation_results/
+jaxa_filled_visualization/
+visulisasion_PPT/output/
+visualization/output/
+jaxa_filtered/
+jaxa_weighted_aligned/plots/
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Cloned repo
+SST_Data_Imputation_2.0/
